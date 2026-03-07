@@ -2,10 +2,12 @@ import time
 from pathlib import Path
 
 import libtmux
+from libtmux._internal.query_list import ObjectDoesNotExist
 
 SOCKET_NAME = "termite"
 DEFAULT_WIDTH = 200
 DEFAULT_HEIGHT = 50
+POLL_INTERVAL_SECONDS = 1
 
 
 class SessionNotFoundError(Exception):
@@ -34,10 +36,7 @@ class TermiteManager:
         )
 
     def kill_session(self, name: str) -> None:
-        session = self.server.sessions.get(session_name=name)
-        if session is None:
-            raise SessionNotFoundError(f"Session '{name}' not found")
-        session.kill()
+        self._get_session(name).kill()
 
     def read_pane(self, session_name: str, tail_chars: int | None) -> str:
         return self._capture(
@@ -68,13 +67,32 @@ class TermiteManager:
         output = self._capture(pane=pane, full=True, tail_chars=None)
         Path(path).write_text(output + "\n")
 
+    def wait_for_change(
+        self,
+        session_name: str,
+        timeout_s: int,
+    ) -> str | None:
+        pane = self._get_pane(session_name)
+        output = self._capture(pane=pane, full=False, tail_chars=None)
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            time.sleep(POLL_INTERVAL_SECONDS)
+            new_output = self._capture(pane=pane, full=False, tail_chars=None)
+            if new_output != output:
+                return new_output
+        return None
+
     def _get_pane(self, session_name: str) -> libtmux.Pane:
-        session = self.server.sessions.get(session_name=session_name)
-        if session is None:
-            raise SessionNotFoundError(f"Session '{session_name}' not found")
+        session = self._get_session(session_name)
         pane = session.active_window.active_pane
         assert pane is not None
         return pane
+
+    def _get_session(self, session_name: str) -> libtmux.Session:
+        try:
+            return self.server.sessions.get(session_name=session_name)
+        except ObjectDoesNotExist as e:
+            raise SessionNotFoundError(f"Session '{session_name}' not found") from e
 
     def _capture(self, pane: libtmux.Pane, full: bool, tail_chars: int | None) -> str:
         if full:

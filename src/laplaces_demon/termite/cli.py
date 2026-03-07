@@ -96,6 +96,30 @@ def read(session: str, tail_chars: int | None) -> None:
     click.echo(output)
 
 
+@cli.command()
+@click.argument("session")
+@click.option(
+    "--timeout-s",
+    type=int,
+    required=True,
+    help="Maximum time in seconds to wait for the pane to change",
+)
+def wait(session: str, timeout_s: int) -> None:
+    """Wait until the visible pane contents change and print them."""
+    manager = TermiteManager()
+    try:
+        output = manager.wait_for_change(
+            session_name=session,
+            timeout_s=timeout_s,
+        )
+    except SessionNotFoundError as e:
+        raise click.ClickException(str(e))
+    if output is not None:
+        click.echo(output)
+        return
+    click.echo("Timed out waiting for pane change")
+
+
 @cli.command("send-file")
 @click.argument("session")
 @click.argument("file", type=click.Path(exists=True))
